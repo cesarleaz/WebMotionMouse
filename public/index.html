@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Web Motion Mouse</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: Arial, sans-serif;
+        text-align: center;
+        background: #000;
+        height: 100vh;
+        height: 100dvh;
+        display: flex;
+        flex-direction: column;
+        justify-content: end;
+      }
+      button {
+        border: 0;
+        min-height: 4rem;
+        border-radius: 8px;
+      }
+      .mouseGrid {
+        display: grid;
+        grid-template-areas:
+          'leftClick rightClick'
+          'toggleMovement toggleMovement';
+        row-gap: 1.5rem;
+        padding: 4rem 1rem;
+      }
+
+      #leftClick {
+        grid-area: leftClick;
+        background-color: red;
+        border-radius: 8px 0 0 8px;
+      }
+      #leftClick:active {
+        background-color: palevioletred;
+      }
+      #rightClick {
+        grid-area: rightClick;
+        background-color: blue;
+        border-radius: 0 8px 8px 0;
+      }
+      #rightClick:active {
+        background-color: skyblue;
+      }
+      #toggleMovement {
+        grid-area: toggleMovement;
+        min-height: 8rem;
+        background-color: #eee;
+      }
+      .active {
+        background-color: #88dc65 !important;
+      }
+
+      #sensitivity {
+        width: calc(100% - 1.5rem);
+        margin: auto;
+      }
+
+      #mousepad {
+        width: 100%;
+        height: 50vh;
+        background-color: #333;
+        margin: 2rem 0;
+        border: 3px solid #fff;
+        position: relative;
+      }
+    </style>
+    <script type="module">
+      const socket = io()
+      let movementActive = false
+      const toggle = document.getElementById('toggleMovement')
+      const mousepad = document.getElementById('mousepad')
+
+      // Variables para rastrear el movimiento previo
+      let lastX = null
+      let lastY = null
+      let lastTouchTime = 0
+      const doubleClickTimeout = 300 // Tiempo máximo entre toques para detectar un doble clic
+      let touchMoving = false
+
+      // Sensibilidad
+      const sensitivitySlider = document.getElementById('sensitivity')
+      sensitivitySlider.value = Number(
+        localStorage.getItem('sensitivityValue') || 60,
+      )
+
+      sensitivitySlider.oninput = () => {
+        localStorage.setItem('sensitivityValue', sensitivitySlider.value)
+      }
+
+      // Toggle movement
+      toggle.onclick = () => {
+        movementActive = !movementActive
+        toggle.classList.toggle('active')
+      }
+
+      // Movimiento en el mousepad con touchmove (ahora relativo)
+      mousepad.addEventListener('touchmove', (event) => {
+        event.preventDefault()
+        touchMoving = true
+
+        const touch = event.touches[0] // Obtener el primer toque
+        const sensitivity = parseInt(sensitivitySlider.value) * 5
+
+        if (lastX === null || lastY === null) {
+          // Si es la primera vez, inicializar las coordenadas previas
+          lastX = touch.clientX
+          lastY = touch.clientY
+          return
+        }
+
+        // Calcular la diferencia en la posición
+        const deltaX = (touch.clientX - lastX) * (sensitivity / 100)
+        const deltaY = (touch.clientY - lastY) * (sensitivity / 100)
+
+        // Actualizar las coordenadas previas
+        lastX = touch.clientX
+        lastY = touch.clientY
+
+        // Emitir el movimiento relativo del mouse al servidor
+        socket.emit('moveMouse', {
+          x: deltaX,
+          y: deltaY,
+        })
+      })
+
+      // Resetear las coordenadas cuando termina el toque
+      mousepad.addEventListener('touchend', () => {
+        lastX = null
+        lastY = null
+        if (!touchMoving) {
+          socket.emit('click', 1) // 1 para clic izquierdo
+        }
+        touchMoving = false
+      })
+
+      // Detectar clic y doble clic en el mousepad
+      mousepad.addEventListener('touchstart', (event) => {
+        const currentTime = new Date().getTime()
+        const timeSinceLastTouch = currentTime - lastTouchTime
+
+        if (timeSinceLastTouch < doubleClickTimeout) {
+          // Detectar como doble clic
+          console.log('Doble clic detectado')
+          socket.emit('doubleClick')
+        }
+
+        // Actualizar el tiempo del último toque
+        lastTouchTime = currentTime
+      })
+
+      // Mover el cursor dentro del mouse pad utilizando DeviceMotion
+      window.addEventListener('devicemotion', (event) => {
+        if (!movementActive) return // No procesar si el movimiento está desactivado
+
+        const acceleration = event.accelerationIncludingGravity
+        const sensitivity = parseInt(sensitivitySlider.value)
+
+        // Calcular el movimiento del cursor basado en la aceleración
+        const xMovement = acceleration.x * sensitivity * 0.1
+        const yMovement = acceleration.y * sensitivity * 0.1
+
+        // Emitir movimiento del mouse
+        socket.emit('moveMouse', {
+          x: xMovement,
+          y: -yMovement, // Invertir Y para coincidir con el movimiento del mouse
+        })
+      })
+
+      // Click izquierdo
+      document.getElementById('leftClick').onclick = () => {
+        socket.emit('click', 1) // 1 para clic izquierdo
+      }
+
+      // Click derecho
+      document.getElementById('rightClick').onclick = () => {
+        socket.emit('click', 3) // 3 para clic derecho
+      }
+    </script>
+  </head>
+  <body>
+    <input type="range" id="sensitivity" min="1" max="100" value="60" />
+
+    <div id="mousepad"></div>
+
+    <div class="mouseGrid">
+      <button id="leftClick"></button>
+      <button id="rightClick"></button>
+      <button id="toggleMovement"></button>
+    </div>
+  </body>
+</html>
